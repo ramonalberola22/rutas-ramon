@@ -1,0 +1,122 @@
+[
+  {
+    "id": "Ain",
+    "name": "Ain",
+    "file": "data/Ain.geojson",
+    "points_original": 14867,
+    "points_simplified": 244,
+    "distance_km": 10.619,
+    "ascent_m": 823.2,
+    "descent_m": 816.4,
+    "ele_min": 384.0,
+    "ele_max": 635.0,
+    "start_time": "2025-11-01T06:34:15Z",
+    "end_time": "2025-11-01T10:42:06Z",
+    "bbox": [
+      -0.342812,
+      39.900433,
+      -0.323132,
+      39.922545
+    ]
+  },
+  {
+    "id": "La_vallesa",
+    "name": "La vallesa",
+    "file": "data/La_vallesa.geojson",
+    "points_original": 8335,
+    "points_simplified": 142,
+    "distance_km": 8.603,
+    "ascent_m": 427.8,
+    "descent_m": 418.8,
+    "ele_min": 49.2,
+    "ele_max": 128.8,
+    "start_time": "2025-12-20T09:47:12Z",
+    "end_time": "2025-12-20T12:06:13Z",
+    "bbox": [
+      -0.51164,
+      39.513098,
+      -0.495495,
+      39.536192
+    ]
+  },
+  {
+    "id": "Peñagolosa",
+    "name": "Peñagolosa",
+    "file": "data/Peñagolosa.geojson",
+    "points_original": 16997,
+    "points_simplified": 216,
+    "distance_km": 9.828,
+    "ascent_m": 1155.2,
+    "descent_m": 1142.6,
+    "ele_min": 1262.0,
+    "ele_max": 1821.2,
+    "start_time": "2025-11-29T07:23:01Z",
+    "end_time": "2025-11-29T12:06:31Z",
+    "bbox": [
+      -0.357155,
+      40.222652,
+      -0.348318,
+      40.251517
+    ]
+  },
+  {
+    "id": "Ruta_por_la_Vallesa",
+    "name": "Ruta por la Vallesa",
+    "file": "data/Ruta_por_la_Vallesa.geojson",
+    "points_original": 6800,
+    "points_simplified": 132,
+    "distance_km": 8.311,
+    "ascent_m": 246.0,
+    "descent_m": 240.2,
+    "ele_min": 48.6,
+    "ele_max": 126.6,
+    "start_time": "2026-01-25T08:01:15Z",
+    "end_time": "2026-01-25T09:54:42Z",
+    "bbox": [
+      -0.511643,
+      39.513075,
+      -0.495483,
+      39.536165
+    ]
+  },
+  {
+    "id": "Serra_barraix_rodeando_alto_del_pino",
+    "name": "Serra - barraix - rodeando alto del pino",
+    "file": "data/Serra_barraix_rodeando_alto_del_pino.geojson",
+    "points_original": 9062,
+    "points_simplified": 215,
+    "distance_km": 11.561,
+    "ascent_m": 444.4,
+    "descent_m": 437.2,
+    "ele_min": 292.8,
+    "ele_max": 568.8,
+    "start_time": "2025-07-26T05:14:12Z",
+    "end_time": "2025-07-26T07:46:30Z",
+    "bbox": [
+      -0.428047,
+      39.67991,
+      -0.389973,
+      39.698372
+    ]
+  },
+  {
+    "id": "Alcudia_de_Veo_Despoblado_Jinker_Alto_de_Pedralva_Alcudia_de_Veo",
+    "name": "Alcudia de Veo - Despoblado Jinker - Alto de Pedralva - Alcudia de Veo",
+    "file": "data/Alcudia_de_Veo_Despoblado_Jinker_Alto_de_Pedralva_Alcudia_de_Veo.geojson",
+    "points_original": 1622,
+    "points_simplified": 195,
+    "distance_km": 10.33,
+    "ascent_m": 438.3,
+    "descent_m": 453.1,
+    "ele_min": 456.4,
+    "ele_max": 735.4,
+    "start_time": "2020-10-04T06:24:24Z",
+    "end_time": "2020-10-04T09:36:50Z",
+    "bbox": [
+      -0.391878,
+      39.915425,
+      -0.353527,
+      39.931584
+    ]
+  }
+]
