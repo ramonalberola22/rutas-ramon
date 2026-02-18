@@ -65,46 +65,186 @@ window.addEventListener('DOMContentLoaded', () => {
   const geojsonCache = new Map();
   const blobUrls = new Map();
 
-  // ================== CONTROL DE EDICIÓN (usuario/contraseña) ==================
-  // NOTA: esto es protección *solo del lado cliente* (no es segura contra quien sepa mirar el código fuente).
-  // Sirve para evitar modificaciones accidentales en una web pública.
+  
+  // ================== SUPABASE (guardado automático compartido) ==================
+  // 1) En Supabase > Settings > API, copia Project URL y la anon public key.
+  // 2) Pega aquí los valores.
+  const SUPABASE_URL = "https://uuowjdqztprgmpucwtby.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_5GXiqAUkegd_vKtUxc8HVg_IaRtdWWc";
+  // Clave "anon" legacy (JWT) por si alguna vez la necesitas:
+  const SUPABASE_LEGACY_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1b3dqZHF6dHByZ21wdWN3dGJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNzE1MDQsImV4cCI6MjA4Njg0NzUwNH0.PEG_KEV4adALyzIPb68dTDHK2GKGpSRDFIXpnmvBGH0";
+
+
+  // Para editar, esta web inicia sesión en Supabase con ESTE email fijo.
+  // Crea este usuario en Supabase Auth y ponle la contraseña "javier".
+  const SUPABASE_EMAIL = "ramon@rutas-ramon.local";
+
+  // Un único estado para toda la aplicación
+  const STATE_ID = "main";
+
+  const sb = (window.supabase &&
+              SUPABASE_URL &&
+              (SUPABASE_ANON_KEY || SUPABASE_LEGACY_ANON_KEY) &&
+              !SUPABASE_URL.includes("PON_AQUI") &&
+              !(SUPABASE_ANON_KEY || '').includes("PON_AQUI"))
+    ? window.supabase.createClient(SUPABASE_URL, (SUPABASE_ANON_KEY || SUPABASE_LEGACY_ANON_KEY))
+    : null;
+
+  const supabaseReady = () => !!sb;
+
+  let _saveTimer = null;
+  function scheduleSave(immediate=false){
+    if(!supabaseReady()) return;
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(saveNow, immediate ? 10 : 900);
+  }
+
+  async function loadRemoteState(){
+    if(!supabaseReady()) return null;
+    const { data, error } = await sb
+      .from('rutas_state')
+      .select('state')
+      .eq('id', STATE_ID)
+      .maybeSingle();
+
+    if(error){
+      console.warn('Supabase: no se pudo leer el estado', error);
+      return null;
+    }
+    return data?.state || null;
+  }
+
+  function buildRemoteState(){
+    const overrides = {};
+    for(const r of ROUTES){
+      overrides[r.id] = {
+        name: r.name ?? r.id,
+        with_whom: r.with_whom ?? "",
+        folder: r.folder ?? "",
+        distance_km: r.distance_km ?? 0,
+        ascent_m: r.ascent_m ?? 0,
+        start_time: r.start_time ?? null
+      };
+    }
+
+    const added_routes = [];
+    const added_geojson = {};
+
+    for(const r of ROUTES){
+      if(r && r.__remote_added){
+        const entry = { ...r };
+        // file es un blob URL del dispositivo; no se puede reutilizar.
+        delete entry.file;
+        delete entry.__remote_added;
+        added_routes.push(entry);
+
+        if(geojsonCache.has(r.id)){
+          added_geojson[r.id] = geojsonCache.get(r.id).geojson;
+        }
+      }
+    }
+
+    return {
+      version: 1,
+      saved_at: new Date().toISOString(),
+      folders: FOLDERS.slice(),
+      overrides,
+      added_routes,
+      added_geojson
+    };
+  }
+
+  async function applyRemoteState(remote){
+    if(!remote || typeof remote !== 'object') return;
+
+    if(Array.isArray(remote.folders)){
+      FOLDERS = remote.folders.map(s => (s || '').trim()).filter(Boolean);
+    }
+
+    const ov = remote.overrides;
+    if(ov && typeof ov === 'object'){
+      for(const r of ROUTES){
+        const o = ov[r.id];
+        if(!o) continue;
+        if(o.name !== undefined) r.name = o.name;
+        if(o.with_whom !== undefined) r.with_whom = o.with_whom;
+        if(o.folder !== undefined) r.folder = o.folder;
+        if(o.distance_km !== undefined) r.distance_km = o.distance_km;
+        if(o.ascent_m !== undefined) r.ascent_m = o.ascent_m;
+        if(o.start_time !== undefined) r.start_time = o.start_time;
+      }
+    }
+
+    if(Array.isArray(remote.added_routes)){
+      const existing = new Set(ROUTES.map(r => r.id));
+      for(const rr of remote.added_routes){
+        if(!rr || !rr.id || existing.has(rr.id)) continue;
+
+        const r = { ...rr };
+        r.__remote_added = true;
+        if(r.with_whom === undefined) r.with_whom = "";
+        if(r.folder === undefined) r.folder = "";
+        if(!r.export_file) r.export_file = `data/${r.id}.geojson`;
+
+        const gj = remote.added_geojson && remote.added_geojson[r.id] ? remote.added_geojson[r.id] : null;
+        if(gj){
+          geojsonCache.set(r.id, { geojson: gj, filename: `${r.id}.geojson` });
+          const blob = new Blob([JSON.stringify(gj)], { type:'application/geo+json' });
+          const url = URL.createObjectURL(blob);
+          blobUrls.set(r.id, url);
+          r.file = url;
+        } else {
+          r.file = r.file || `data/${r.id}.geojson`;
+        }
+
+        ROUTES.push(r);
+        existing.add(r.id);
+      }
+    }
+  }
+
+  async function saveNow(){
+    if(!supabaseReady()) return;
+
+    const { data: sessData } = await sb.auth.getSession();
+    const session = sessData?.session;
+    if(!session?.user) return;
+
+    const state = buildRemoteState();
+
+    const { error } = await sb
+      .from('rutas_state')
+      .upsert({ id: STATE_ID, owner: session.user.id, state }, { onConflict: 'id' });
+
+    if(error) console.warn('Supabase: error guardando estado', error);
+  }
+
+// ================== CONTROL DE EDICIÓN (contraseña) ==================
+  // Por defecto: solo lectura. Para editar, pulsa "Editar 🔒" y escribe la contraseña.
+  // La persistencia real (guardado automático compartido) la controla Supabase.
   let EDIT_UNLOCKED = sessionStorage.getItem('edit_unlocked') === '1';
 
-  const setEditUnlocked = (v) => {
+  const setEditUnlocked = async (v) => {
     EDIT_UNLOCKED = !!v;
     if(EDIT_UNLOCKED) sessionStorage.setItem('edit_unlocked', '1');
     else sessionStorage.removeItem('edit_unlocked');
-    // Login modal handlers
-  const loginCancel = document.getElementById('login_cancel');
-  const loginOk = document.getElementById('login_ok');
-  const loginBackdrop = document.getElementById('loginBackdrop');
-  if(loginCancel) loginCancel.addEventListener('click', closeLoginModal);
-  if(loginOk) loginOk.addEventListener('click', tryLogin);
-  if(loginBackdrop){
-    loginBackdrop.addEventListener('click', (ev) => {
-      if(ev.target && ev.target.id === 'loginBackdrop') closeLoginModal();
-    });
-  }
-  document.addEventListener('keydown', (ev) => {
-    if(ev.key === 'Escape') closeLoginModal();
-    if(ev.key === 'Enter'){
-      const b = document.getElementById('loginBackdrop');
-      if(b && b.style.display === 'flex') tryLogin();
-    }
-  });
 
-  updateEditUI();
-    // refresca lista para activar/desactivar botones
+    // Si sales de edición, cerramos sesión en Supabase (opcional).
+    if(!EDIT_UNLOCKED && supabaseReady()){
+      try { await sb.auth.signOut(); } catch {}
+    }
+
+    updateEditUI();
     try { renderList(groupedAndSorted()); } catch {}
   };
 
   const openLoginModal = () => {
     const b = document.getElementById('loginBackdrop');
     if(!b) return;
-    document.getElementById('login_user').value = '';
-    document.getElementById('login_pass').value = '';
+    const pass = document.getElementById('login_pass');
+    if(pass) pass.value = '';
     b.style.display = 'flex';
-    setTimeout(() => document.getElementById('login_user')?.focus(), 50);
+    setTimeout(() => pass?.focus(), 50);
   };
 
   const closeLoginModal = () => {
@@ -112,28 +252,34 @@ window.addEventListener('DOMContentLoaded', () => {
     if(b) b.style.display = 'none';
   };
 
-  const tryLogin = () => {
-    const u = document.getElementById('login_user')?.value;
+  const tryLogin = async () => {
     const p = document.getElementById('login_pass')?.value;
 
-    if(String(u||'').trim().toLowerCase() === 'ramon' && String(p||'').trim().toLowerCase() === 'javier'){
-      setEditUnlocked(true);
-      closeLoginModal();
-      return true;
+    if(!supabaseReady()){
+      alert('Para activar el modo edición necesitas configurar Supabase (SUPABASE_URL y SUPABASE_ANON_KEY) en app.js.');
+      return false;
     }
-    alert('Credenciales incorrectas.');
-    return false;
-  };
 
-  const attemptUnlock = () => {
-    // No preguntar al inicio: solo mostrar modal
-    openLoginModal();
-    return false;
+    const { error } = await sb.auth.signInWithPassword({
+      email: SUPABASE_EMAIL,
+      password: String(p||'').trim()
+    });
+
+    if(error){
+      console.warn(error);
+      alert('Contraseña incorrecta o usuario no creado en Supabase.');
+      return false;
+    }
+
+    await setEditUnlocked(true);
+    closeLoginModal();
+    scheduleSave(true);
+    return true;
   };
 
   const requireEdit = () => {
     if(EDIT_UNLOCKED) return true;
-    attemptUnlock();
+    openLoginModal();
     return false;
   };
 
@@ -150,16 +296,12 @@ window.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('editBtn');
 
     if(pill){
-      pill.textContent = EDIT_UNLOCKED ? 'Editar' : 'Solo lectura';
-      pill.classList.toggle('locked', !EDIT_UNLOCKED);
-      pill.classList.toggle('unlocked', EDIT_UNLOCKED);
+      pill.textContent = 'Solo lectura';
+      pill.classList.toggle('active', !EDIT_UNLOCKED);
     }
-    if(pill){
-      pill.addEventListener('click', () => setEditUnlocked(false));
-    }
-
     if(btn){
       btn.textContent = EDIT_UNLOCKED ? 'Editar 🔓' : 'Editar 🔒';
+      btn.classList.toggle('active', EDIT_UNLOCKED);
     }
 
     // Carpetas
@@ -175,12 +317,11 @@ window.addEventListener('DOMContentLoaded', () => {
       const label = addInput.closest('label');
       if(label){
         label.style.opacity = EDIT_UNLOCKED ? '1' : '0.55';
-        // evitamos que se abra el selector de archivos en modo lectura
         label.style.pointerEvents = EDIT_UNLOCKED ? 'auto' : 'none';
       }
     }
 
-    // Modal
+    // Modal editar
     const saveBtn = document.getElementById('m_save');
     if(saveBtn){
       saveBtn.disabled = !EDIT_UNLOCKED;
@@ -188,39 +329,35 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // Botones de modo arriba
+  const editPillEl = document.getElementById('editPill');
+  if(editPillEl) editPillEl.addEventListener('click', () => setEditUnlocked(false));
 
-  // ================== CONTADOR TOPBAR ==================
-  const updateRouteCounter = () => {
-    const el = document.getElementById('routeCount');
-    if(el) el.textContent = String(ROUTES.length);
-  };
-
-  // Botón de desbloqueo/bloqueo en la barra superior
-  const editBtn = document.getElementById('editBtn');
-  if(editBtn){
-    editBtn.addEventListener('click', () => {
+  const editBtnEl = document.getElementById('editBtn');
+  if(editBtnEl){
+    editBtnEl.addEventListener('click', () => {
       if(EDIT_UNLOCKED){
-        if(confirm('¿Bloquear la edición y volver a modo solo lectura?')){
-          setEditUnlocked(false);
-        }
+        if(confirm('¿Salir del modo edición y volver a solo lectura?')) setEditUnlocked(false);
         return;
       }
-      attemptUnlock();
+      openLoginModal();
     });
   }
 
-  // Inicializa estado visual
-  // Login modal handlers
+  // Handlers del modal login
   const loginCancel = document.getElementById('login_cancel');
   const loginOk = document.getElementById('login_ok');
   const loginBackdrop = document.getElementById('loginBackdrop');
+
   if(loginCancel) loginCancel.addEventListener('click', closeLoginModal);
-  if(loginOk) loginOk.addEventListener('click', tryLogin);
+  if(loginOk) loginOk.addEventListener('click', () => { tryLogin(); });
+
   if(loginBackdrop){
     loginBackdrop.addEventListener('click', (ev) => {
       if(ev.target && ev.target.id === 'loginBackdrop') closeLoginModal();
     });
   }
+
   document.addEventListener('keydown', (ev) => {
     if(ev.key === 'Escape') closeLoginModal();
     if(ev.key === 'Enter'){
@@ -231,6 +368,11 @@ window.addEventListener('DOMContentLoaded', () => {
 
   updateEditUI();
 
+  // ================== CONTADOR TOPBAR ==================
+  const updateRouteCounter = () => {
+    const el = document.getElementById('routeCount');
+    if(el) el.textContent = String(ROUTES.length);
+  };
 
   // ================== UTILS ==================
   const fmtKm = (km) => `${(km ?? 0).toFixed(2)} km`;
@@ -547,10 +689,12 @@ window.addEventListener('DOMContentLoaded', () => {
     FOLDERS.push(name);
     refreshFolderControls();
     renderList(groupedAndSorted());
-    refreshAllArrows();
+          refreshAllArrows();
+          scheduleSave();
   });
 
-  document.getElementById('deleteFolder').addEventListener('click', () => {
+  document.getElementById('deleteFolder')
+  .addEventListener('click', () => {
     if(!requireEdit()) return;
     const sel = document.getElementById('folderToDelete');
     const name = normalizeFolder(sel?.value);
@@ -565,6 +709,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    scheduleSave();
   });
 
   // ================== ORDENACIÓN ==================
@@ -637,6 +782,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    scheduleSave();
     closeModal();
   });
 
@@ -991,6 +1137,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    scheduleSave();
   };
 
   // ================== MOSTRAR / OCULTAR TODAS ==================
@@ -1058,6 +1205,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    scheduleSave();
     ev.target.value = '';
   });
 
@@ -1118,6 +1266,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     blobUrls.set(id, url);
 
     return {
+      __remote_added: true,
       id,
       name,
       with_whom: "",
@@ -1213,6 +1362,16 @@ Revisa que exista en /data y que el servidor lo sirva.`);
   const start = async () => {
     FOLDERS = await loadFolders();
     await loadRoutes();
+
+    refreshFolderControls();
+
+    // Carga el estado remoto (carpetas + cambios) desde Supabase (si existe)
+    try {
+      const remote = await loadRemoteState();
+      if(remote) await applyRemoteState(remote);
+    } catch (e) {
+      console.warn('Supabase: no se pudo aplicar estado remoto', e);
+    }
 
     refreshFolderControls();
 

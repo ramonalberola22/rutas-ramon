@@ -214,7 +214,7 @@
           <select id="folderToDelete" class="select-small" aria-label="Carpeta a borrar"></select>
           <button id="deleteFolder" class="btn danger">🗑 Borrar carpeta</button>
         </div>
-        <div class="hint">Las carpetas se guardan al exportar (se genera <code>folders.json</code>).</div>
+        <div class="hint">En <b>modo edición</b>, los cambios se guardan <b>automáticamente</b>. (Exportar ZIP sigue siendo útil como copia local.)</div>
       </details>
 
       <details class="panel" open>
@@ -286,11 +286,12 @@
   <div id="loginBackdrop" class="modal-backdrop" style="display:none;">
     <div class="modal">
       <h2>Iniciar sesión</h2>
-      <div class="small">Necesario para crear/borrar carpetas y editar rutas.</div>
+      <div class="small">Introduce la contraseña para activar el modo edición.</div>
 
       <div class="grid" style="margin-top:10px;">
-        <div>Usuario</div><div><input id="login_user" autocomplete="username" /></div>
         <div>Contraseña</div><div><input id="login_pass" type="password" autocomplete="current-password" /></div>
+      </div>
+
       </div>
 
       <div class="actions">
@@ -305,6 +306,8 @@
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@raruto/leaflet-elevation@2.5.2/dist/leaflet-elevation.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- app -->
   <script defer src="app.js"></script>
