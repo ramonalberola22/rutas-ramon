@@ -759,6 +759,7 @@ window.addEventListener('DOMContentLoaded', () => {
     renderList(groupedAndSorted());
           refreshAllArrows();
           scheduleSave(true);
+          scheduleSave(true);
   });
 
   document.getElementById('deleteFolder')
@@ -986,6 +987,7 @@ window.addEventListener('DOMContentLoaded', () => {
           renderList(groupedAndSorted());
     refreshAllArrows();
         });
+          scheduleSave(true);
 
         // acciones
         div.addEventListener('click', (ev) => {
@@ -1221,6 +1223,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     renderList(groupedAndSorted());
     refreshAllArrows();
   });
+          scheduleSave(true);
 
   document.getElementById('hideAll').addEventListener('click', () => {
     for(const [id, layer] of layersById.entries()){
@@ -1236,6 +1239,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     renderList(groupedAndSorted());
     refreshAllArrows();
   });
+          scheduleSave(true);
 
   // ================== FLECHAS (toggle) ==================
   const arrowsCheckbox = document.getElementById('toggleArrows');
@@ -1252,6 +1256,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     renderList(groupedAndSorted());
     refreshAllArrows();
   });
+          scheduleSave(true);
 
   // ================== AÑADIR GPX ==================
   document.getElementById('addGpx').addEventListener('change', async (ev) => {
