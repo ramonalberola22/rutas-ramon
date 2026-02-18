@@ -92,6 +92,28 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const supabaseReady = () => !!sb;
 
+  async function syncEditModeWithSession(){
+    if(!supabaseReady()){
+      // Sin Supabase no permitimos edición (porque no se puede guardar en GitHub Pages)
+      EDIT_UNLOCKED = false;
+      updateEditUI?.();
+      try { renderList?.(groupedAndSorted?.()); refreshAllArrows?.(); } catch(e) { console.warn('Render tras sync sesión', e); }
+      return;
+    }
+    try{
+      const { data } = await sb.auth.getSession();
+      const hasSession = !!data?.session?.user;
+      EDIT_UNLOCKED = hasSession;
+      updateEditUI?.();
+      try { renderList?.(groupedAndSorted?.()); refreshAllArrows?.(); } catch(e) { console.warn('Render tras sync sesión', e); }
+    }catch(e){
+      console.warn('Supabase: no se pudo leer sesión', e);
+      EDIT_UNLOCKED = false;
+      updateEditUI?.();
+    }
+  }
+
+
   let _saveTimer = null;
   function scheduleSave(immediate=false){
     if(!supabaseReady()) return;
@@ -216,18 +238,29 @@ window.addEventListener('DOMContentLoaded', () => {
       .from('rutas_state')
       .upsert({ id: STATE_ID, owner: session.user.id, state }, { onConflict: 'id' });
 
-    if(error) console.warn('Supabase: error guardando estado', error);
+    if(error){
+      console.warn('Supabase: error guardando estado', error);
+      // Muestra aviso breve (no bloqueante)
+      try{ showToast?.('No se ha podido guardar en Supabase (mira consola).'); } catch {}
+    }
   }
 
 // ================== CONTROL DE EDICIÓN (contraseña) ==================
   // Por defecto: solo lectura. Para editar, pulsa "Editar 🔒" y escribe la contraseña.
   // La persistencia real (guardado automático compartido) la controla Supabase.
-  let EDIT_UNLOCKED = sessionStorage.getItem('edit_unlocked') === '1';
+  let EDIT_UNLOCKED = false; // Solo lectura por defecto; se habilita tras login válido en Supabase
 
   const setEditUnlocked = async (v) => {
-    EDIT_UNLOCKED = !!v;
-    if(EDIT_UNLOCKED) sessionStorage.setItem('edit_unlocked', '1');
-    else sessionStorage.removeItem('edit_unlocked');
+    // Solo permitimos desbloquear si hay sesión Supabase
+    if(v){
+      await syncEditModeWithSession();
+      if(!EDIT_UNLOCKED){
+        openLoginModal();
+        return;
+      }
+    } else {
+      EDIT_UNLOCKED = false;
+    }
 
     // Si sales de edición, cerramos sesión en Supabase (opcional).
     if(!EDIT_UNLOCKED && supabaseReady()){
@@ -271,14 +304,21 @@ window.addEventListener('DOMContentLoaded', () => {
       return false;
     }
 
-    await setEditUnlocked(true);
+    await syncEditModeWithSession();
+    if(!EDIT_UNLOCKED){
+      alert('No se pudo activar el modo edición (sesión no válida).');
+      return false;
+    }
     closeLoginModal();
     scheduleSave(true);
+    try { renderList(groupedAndSorted()); refreshAllArrows(); } catch(e) { console.warn('Render tras login', e); }
     return true;
   };
 
   const requireEdit = () => {
     if(EDIT_UNLOCKED) return true;
+    // Si no hay sesión, pedimos contraseña
+
     openLoginModal();
     return false;
   };
@@ -374,7 +414,35 @@ window.addEventListener('DOMContentLoaded', () => {
     if(el) el.textContent = String(ROUTES.length);
   };
 
-  // ================== UTILS ==================
+  
+  // Toast muy simple (para avisos sin molestar)
+  function showToast(msg){
+    let t = document.getElementById('toast');
+    if(!t){
+      t = document.createElement('div');
+      t.id = 'toast';
+      t.style.position = 'fixed';
+      t.style.left = '12px';
+      t.style.bottom = '12px';
+      t.style.zIndex = '99999';
+      t.style.background = '#111827';
+      t.style.color = '#fff';
+      t.style.padding = '10px 12px';
+      t.style.borderRadius = '12px';
+      t.style.boxShadow = '0 10px 30px rgba(0,0,0,.25)';
+      t.style.fontSize = '13px';
+      t.style.maxWidth = 'min(520px, calc(100vw - 24px))';
+      t.style.opacity = '0';
+      t.style.transition = 'opacity .2s ease';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+  }
+
+// ================== UTILS ==================
   const fmtKm = (km) => `${(km ?? 0).toFixed(2)} km`;
   const fmtM = (m) => `${Math.round(m ?? 0)} m`;
   const dateOnly = (iso) => {
@@ -1364,6 +1432,9 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     await loadRoutes();
 
     refreshFolderControls();
+
+    // Sincroniza modo edición con la sesión actual (si estabas logueado)
+    await syncEditModeWithSession();
 
     // Carga el estado remoto (carpetas + cambios) desde Supabase (si existe)
     try {
