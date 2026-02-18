@@ -92,6 +92,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const supabaseReady = () => !!sb;
 
+  function markDirty(){ DIRTY = true; }
+
+
   async function syncEditModeWithSession(){
     if(!supabaseReady()){
       // Sin Supabase no permitimos edición (porque no se puede guardar en GitHub Pages)
@@ -115,25 +118,37 @@ window.addEventListener('DOMContentLoaded', () => {
 
 
   let _saveTimer = null;
+  let REMOTE_LOADED = false;
+  let DIRTY = false;
+  let BASE_REMOTE_SAVED_AT = null; // remote.saved_at que cargamos por última vez
+  let BASE_REMOTE_UPDATED_AT = null; // updated_at de la fila (si lo pedimos)
+
   function scheduleSave(immediate=false){
     if(!supabaseReady()) return;
+    if(!EDIT_UNLOCKED) return;
+    if(!REMOTE_LOADED) return;
+    if(!DIRTY) return;
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(saveNow, immediate ? 10 : 900);
   }
 
-  async function loadRemoteState(){
+  async function loadRemoteStateWithMeta(){
     if(!supabaseReady()) return null;
     const { data, error } = await sb
       .from('rutas_state')
-      .select('state')
+      .select('state, updated_at')
       .eq('id', STATE_ID)
       .maybeSingle();
-
     if(error){
       console.warn('Supabase: no se pudo leer el estado', error);
       return null;
     }
-    return data?.state || null;
+    return data || null;
+  }
+
+  async function loadRemoteState(){
+    const d = await loadRemoteStateWithMeta();
+    return d?.state || null;
   }
 
   function buildRemoteState(){
@@ -232,16 +247,67 @@ window.addEventListener('DOMContentLoaded', () => {
     const session = sessData?.session;
     if(!session?.user) return;
 
+    // Si aún no hay cambios, no guardes.
+    if(!DIRTY) return;
+
+    // 1) Lee el estado remoto actual para evitar sobreescrituras desde pestañas/estados viejos
+    try{
+      const { data: current, error: readErr } = await sb
+        .from('rutas_state')
+        .select('state, updated_at')
+        .eq('id', STATE_ID)
+        .maybeSingle();
+
+      if(readErr){
+        console.warn('Supabase: no se pudo leer antes de guardar', readErr);
+      } else if(current){
+        const remoteSavedAt = current.state?.saved_at || null;
+        const remoteUpdatedAt = current.updated_at || null;
+
+        // Si el remoto cambió desde que lo cargamos, no sobrescribas.
+        if((BASE_REMOTE_SAVED_AT && remoteSavedAt && remoteSavedAt !== BASE_REMOTE_SAVED_AT) ||
+           (BASE_REMOTE_UPDATED_AT && remoteUpdatedAt && remoteUpdatedAt !== BASE_REMOTE_UPDATED_AT)){
+          alert('El estado ha cambiado en otra pestaña/dispositivo. Se va a recargar para evitar perder cambios.');
+          // Recargar remoto y aplicar; el usuario puede re-hacer el último cambio si hiciera falta
+          const latest = await loadRemoteStateWithMeta();
+          if(latest?.state){
+            await applyRemoteState(latest.state);
+            BASE_REMOTE_SAVED_AT = latest.state?.saved_at || null;
+            BASE_REMOTE_UPDATED_AT = latest.updated_at || null;
+            renderList(groupedAndSorted());
+            refreshAllArrows();
+          }
+          DIRTY = false;
+          return;
+        }
+      }
+    } catch(e){
+      console.warn('Supabase: check previo al guardado falló', e);
+    }
+
+    // 2) Construye estado local y guarda
     const state = buildRemoteState();
 
-    const { error } = await sb
+    const { error, data } = await sb
       .from('rutas_state')
-      .upsert({ id: STATE_ID, owner: session.user.id, state }, { onConflict: 'id' });
+      .upsert({ id: STATE_ID, owner: session.user.id, state }, { onConflict: 'id' })
+      .select('updated_at')
+      .maybeSingle();
 
     if(error){
       console.warn('Supabase: error guardando estado', error);
-      // Muestra aviso breve (no bloqueante)
-      try{ showToast?.('No se ha podido guardar en Supabase (mira consola).'); } catch {}
+      return;
+    }
+
+    // Actualiza bases (lo que hemos guardado)
+    BASE_REMOTE_SAVED_AT = state.saved_at || null;
+    BASE_REMOTE_UPDATED_AT = data?.updated_at || BASE_REMOTE_UPDATED_AT;
+
+    DIRTY = false;
+
+    const lastSaveEl = document.getElementById('lastSave');
+    if(lastSaveEl){
+      lastSaveEl.textContent = 'Guardado ✓ ' + new Date().toLocaleTimeString();
     }
   }
 
@@ -310,6 +376,7 @@ window.addEventListener('DOMContentLoaded', () => {
       return false;
     }
     closeLoginModal();
+    markDirty();
     scheduleSave(true);
     try { renderList(groupedAndSorted()); refreshAllArrows(); } catch(e) { console.warn('Render tras login', e); }
     return true;
@@ -758,8 +825,10 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
           refreshAllArrows();
-          scheduleSave(true);
-          scheduleSave(true);
+          markDirty();
+    scheduleSave(true);
+          markDirty();
+    scheduleSave(true);
   });
 
   document.getElementById('deleteFolder')
@@ -778,6 +847,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    markDirty();
     scheduleSave(true);
   });
 
@@ -851,6 +921,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    markDirty();
     scheduleSave(true);
     closeModal();
   });
@@ -987,7 +1058,8 @@ window.addEventListener('DOMContentLoaded', () => {
           renderList(groupedAndSorted());
     refreshAllArrows();
         });
-          scheduleSave(true);
+          markDirty();
+    scheduleSave(true);
 
         // acciones
         div.addEventListener('click', (ev) => {
@@ -1207,6 +1279,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    markDirty();
     scheduleSave(true);
   };
 
@@ -1223,7 +1296,8 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     renderList(groupedAndSorted());
     refreshAllArrows();
   });
-          scheduleSave(true);
+          markDirty();
+    scheduleSave(true);
 
   document.getElementById('hideAll').addEventListener('click', () => {
     for(const [id, layer] of layersById.entries()){
@@ -1239,7 +1313,8 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     renderList(groupedAndSorted());
     refreshAllArrows();
   });
-          scheduleSave(true);
+          markDirty();
+    scheduleSave(true);
 
   // ================== FLECHAS (toggle) ==================
   const arrowsCheckbox = document.getElementById('toggleArrows');
@@ -1256,7 +1331,8 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     renderList(groupedAndSorted());
     refreshAllArrows();
   });
-          scheduleSave(true);
+          markDirty();
+    scheduleSave(true);
 
   // ================== AÑADIR GPX ==================
   document.getElementById('addGpx').addEventListener('change', async (ev) => {
@@ -1278,6 +1354,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
+    markDirty();
     scheduleSave(true);
     ev.target.value = '';
   });
@@ -1443,10 +1520,15 @@ Revisa que exista en /data y que el servidor lo sirva.`);
 
     // Carga el estado remoto (carpetas + cambios) desde Supabase (si existe)
     try {
-      const remote = await loadRemoteState();
-      if(remote) await applyRemoteState(remote);
+      const remoteData = await loadRemoteStateWithMeta();
+      if(remoteData?.state) await applyRemoteState(remoteData.state);
+      BASE_REMOTE_SAVED_AT = remoteData?.state?.saved_at || null;
+      BASE_REMOTE_UPDATED_AT = remoteData?.updated_at || null;
+      REMOTE_LOADED = true;
     } catch (e) {
       console.warn('Supabase: no se pudo aplicar estado remoto', e);
+    } finally {
+      REMOTE_LOADED = true;
     }
 
     refreshFolderControls();
@@ -1467,7 +1549,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
   // Best effort: intentar guardar antes de cerrar/recargar (no siempre garantizado)
   window.addEventListener('beforeunload', (ev) => {
     try {
-      if(EDIT_UNLOCKED) {
+      if(EDIT_UNLOCKED && DIRTY) {
         // Dispara guardado inmediato; supabase-js usa fetch, intentamos keepalive con un upsert manual
         if(supabaseReady()){
           const state = buildRemoteState();
