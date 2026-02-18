@@ -758,7 +758,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
           refreshAllArrows();
-          scheduleSave();
+          scheduleSave(true);
   });
 
   document.getElementById('deleteFolder')
@@ -777,7 +777,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
-    scheduleSave();
+    scheduleSave(true);
   });
 
   // ================== ORDENACIÓN ==================
@@ -850,7 +850,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
-    scheduleSave();
+    scheduleSave(true);
     closeModal();
   });
 
@@ -1205,7 +1205,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
-    scheduleSave();
+    scheduleSave(true);
   };
 
   // ================== MOSTRAR / OCULTAR TODAS ==================
@@ -1273,7 +1273,7 @@ Revisa que exista en /data y que el servidor lo sirva.`);
     refreshFolderControls();
     renderList(groupedAndSorted());
     refreshAllArrows();
-    scheduleSave();
+    scheduleSave(true);
     ev.target.value = '';
   });
 
@@ -1458,6 +1458,39 @@ Revisa que exista en /data y que el servidor lo sirva.`);
   };
 
   window.addEventListener('resize', () => { safeInvalidateMap(); });
+
+  // Best effort: intentar guardar antes de cerrar/recargar (no siempre garantizado)
+  window.addEventListener('beforeunload', (ev) => {
+    try {
+      if(EDIT_UNLOCKED) {
+        // Dispara guardado inmediato; supabase-js usa fetch, intentamos keepalive con un upsert manual
+        if(supabaseReady()){
+          const state = buildRemoteState();
+          const key = (SUPABASE_ANON_KEY || SUPABASE_LEGACY_ANON_KEY);
+          const url = `${SUPABASE_URL}/rest/v1/rutas_state?on_conflict=id`;
+          const body = JSON.stringify([{ id: STATE_ID, owner: null, state }]);
+          // owner se rellenará por RLS? No, así que solo hacemos esto si no hay sesión no sirve.
+          // Si hay sesión, añadimos Authorization del access_token.
+          sb.auth.getSession().then(({data})=>{
+            const token = data?.session?.access_token;
+            if(!token) return;
+            fetch(url, {
+              method:'POST',
+              headers:{
+                'apikey': key,
+                'Authorization': `Bearer ${token}`,
+                'Content-Type':'application/json',
+                'Prefer':'resolution=merge-duplicates'
+              },
+              body,
+              keepalive:true
+            }).catch(()=>{});
+          }).catch(()=>{});
+        }
+      }
+    } catch {}
+  });
+
 
   start().catch(err => {
     console.error(err);
