@@ -132,7 +132,24 @@ window.addEventListener('DOMContentLoaded', () => {
     _saveTimer = setTimeout(saveNow, immediate ? 10 : 900);
   }
 
-  async function loadRemoteStateWithMeta(){
+  
+  async function refreshFromRemote(){
+    try{
+      const remoteData = await loadRemoteStateWithMeta();
+      if(remoteData?.state){
+        await applyRemoteState(remoteData.state);
+        BASE_REMOTE_SAVED_AT = remoteData.state?.saved_at || null;
+        BASE_REMOTE_UPDATED_AT = remoteData.updated_at || null;
+      }
+      REMOTE_LOADED = true;
+      renderList(groupedAndSorted());
+      refreshAllArrows();
+    } catch(e){
+      console.warn('Supabase: no se pudo refrescar estado remoto', e);
+    }
+  }
+
+async function loadRemoteStateWithMeta(){
     if(!supabaseReady()) return null;
     const { data, error } = await sb
       .from('rutas_state')
@@ -1545,6 +1562,15 @@ Revisa que exista en /data y que el servidor lo sirva.`);
   };
 
   window.addEventListener('resize', () => { safeInvalidateMap(); });
+
+  // Cuando vuelves a la pestaña, refresca desde Supabase (si estás en edición)
+  window.addEventListener('focus', async () => {
+    try{
+      if(EDIT_UNLOCKED && supabaseReady()){
+        await refreshFromRemote();
+      }
+    } catch{}
+  });
 
   // Best effort: intentar guardar antes de cerrar/recargar (no siempre garantizado)
   window.addEventListener('beforeunload', (ev) => {
